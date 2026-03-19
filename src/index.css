@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white antialiased overflow-x-hidden;
+  }
+}
+
+@layer utilities {
+  .cyber-glow {
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.5), 0 0 20px rgba(6, 182, 212, 0.3);
+  }
+  
+  .cyber-border-glow {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 15px rgba(6, 182, 212, 0.1);
+  }
+
+  .cyber-glass {
+    @apply bg-black/40 backdrop-blur-md border border-cyan-500/30;
+  }
+
+  .cyber-button-shape {
+    clip-path: polygon(
+      8px 0%, 
+      100% 0%, 
+      100% calc(100% - 8px), 
+      calc(100% - 8px) 100%, 
+      0% 100%, 
+      0% 8px
+    );
+  }
+
+  .cyber-button-bg {
+    background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 100%),
+                linear-gradient(90deg, rgba(6, 182, 212, 0.1) 0%, rgba(0,0,0,0) 20%, rgba(0,0,0,0) 80%, rgba(6, 182, 212, 0.1) 100%),
+                #121212;
+    position: relative;
+  }
+
+  .cyber-button-bg::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.8), transparent);
+  }
+}
