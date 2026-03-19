@@ -4,7 +4,7 @@
  */
 
 import * as React from 'react';
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, Component } from 'react';
 import { 
   Link2, 
   Play, 
@@ -28,9 +28,70 @@ import {
   Smartphone,
   Cpu,
   Zap,
-  ChevronRight
+  ChevronRight,
+  LogOut,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  handleFirestoreError, 
+  OperationType 
+} from './firebase';
+import { 
+  signInWithPopup, 
+  onAuthStateChanged, 
+  signOut, 
+  User 
+} from 'firebase/auth';
+import { 
+  doc, 
+  onSnapshot, 
+  setDoc, 
+  getDoc 
+} from 'firebase/firestore';
+
+// Error Boundary Component
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center">
+          <div className="cyber-glass p-8 rounded-2xl border-red-500/50 max-w-md">
+            <AlertTriangle className="text-red-500 mx-auto mb-4" size={48} />
+            <h1 className="text-2xl font-black text-red-500 mb-4 uppercase tracking-tighter">System Failure</h1>
+            <p className="text-white/60 text-sm mb-6 uppercase tracking-widest leading-relaxed">
+              A critical error has occurred in the neural link. 
+              {this.state.error?.message || "Unknown error"}
+            </p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-red-500 text-black font-black rounded hover:bg-red-400 transition-colors uppercase text-xs tracking-widest"
+            >
+              Reboot System
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface LinkItem {
   id: string;
@@ -124,7 +185,9 @@ const ADMIN_PASSWORD = 'admin'; // Simple password for demo
 
 export default function App() {
   return (
-    <CyberLink />
+    <ErrorBoundary>
+      <CyberLink />
+    </ErrorBoundary>
   );
 }
 
@@ -132,20 +195,34 @@ function CyberLink() {
   const [data, setData] = useState<ProfileData>(DEFAULT_DATA);
   const [isEditing, setIsEditing] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
-  // Load data from localStorage on mount
+  // Auth State Listener
   useEffect(() => {
-    const savedData = localStorage.getItem('cyberlink_data');
-    if (savedData) {
-      try {
-        setData(JSON.parse(savedData));
-      } catch (e) {
-        console.error("Failed to parse saved data", e);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore Data Listener
+  useEffect(() => {
+    const profileDoc = doc(db, 'profiles', 'main');
+    const unsubscribe = onSnapshot(profileDoc, (snapshot) => {
+      if (snapshot.exists()) {
+        setData(snapshot.data() as ProfileData);
+      } else {
+        // If no data exists yet, we could initialize it
+        console.log("No profile found in Firestore, using defaults.");
       }
-    }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'profiles/main');
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -155,33 +232,51 @@ function CyberLink() {
     }
   }, [toast]);
 
-  const handleSave = (newData: ProfileData) => {
+  const handleSave = async (newData: ProfileData) => {
+    if (!user) {
+      setToast('ERROR: AUTH REQUIRED');
+      return;
+    }
+
     try {
-      setData(newData);
-      localStorage.setItem('cyberlink_data', JSON.stringify(newData));
+      setToast('UPLOADING TO NEURAL NET...');
+      const profileDoc = doc(db, 'profiles', 'main');
+      await setDoc(profileDoc, {
+        ...newData,
+        uid: user.uid,
+        updatedAt: new Date().toISOString()
+      });
       setIsEditing(false);
       setToast('SYSTEM UPDATED');
     } catch (e: any) {
-      console.error("Failed to save to localStorage", e);
-      if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-        setToast('ERROR: STORAGE QUOTA EXCEEDED. TRY SMALLER IMAGES.');
-      } else {
-        setToast('ERROR: FAILED TO SAVE DATA');
-      }
+      handleFirestoreError(e, OperationType.WRITE, 'profiles/main');
+      setToast('ERROR: SYNC FAILED');
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setIsEditing(true);
+  const handleLogin = async () => {
+    try {
+      setToast('INITIATING AUTH...');
+      await signInWithPopup(auth, googleProvider);
       setShowLogin(false);
-      setPassword('');
-      setLoginError(false);
-    } else {
-      setLoginError(true);
+      setToast('ACCESS GRANTED');
+    } catch (e: any) {
+      console.error("Login failed", e);
+      setToast('ERROR: AUTH FAILED');
     }
   };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsEditing(false);
+      setToast('LOGGED OUT');
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
+
+  const isAdmin = user?.email === "fatimahwidi4@gmail.com";
 
   return (
     <div className="relative min-h-screen w-full flex flex-col items-center justify-start py-12 px-4 overflow-y-auto font-sans">
@@ -215,12 +310,31 @@ function CyberLink() {
           <Link2 size={20} />
         </button>
         <button 
-          onClick={() => setShowLogin(true)}
+          onClick={() => {
+            if (user) {
+              if (isAdmin) {
+                setIsEditing(true);
+              } else {
+                setToast('ERROR: UNAUTHORIZED');
+              }
+            } else {
+              setShowLogin(true);
+            }
+          }}
           className="p-2 rounded-full cyber-glass text-cyan-400/50 hover:text-cyan-400 transition-colors"
           title="Admin Settings"
         >
-          <Settings size={20} />
+          {user ? <Unlock size={20} /> : <Settings size={20} />}
         </button>
+        {user && (
+          <button 
+            onClick={handleLogout}
+            className="p-2 rounded-full cyber-glass text-red-400/50 hover:text-red-400 transition-colors"
+            title="Logout"
+          >
+            <LogOut size={20} />
+          </button>
+        )}
       </div>
 
       <div className="relative z-10 w-full max-w-md flex flex-col items-center">
@@ -311,32 +425,23 @@ function CyberLink() {
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-cyan-400 tracking-widest uppercase flex items-center gap-2">
-                  <Lock size={20} /> Access Control
+                  <Lock size={20} /> Neural Access
                 </h2>
                 <button onClick={() => setShowLogin(false)} className="text-white/50 hover:text-white">
                   <X size={24} />
                 </button>
               </div>
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-cyan-400/60 uppercase mb-2 tracking-widest">Enter Admin Key</label>
-                  <input 
-                    type="password" 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-black/40 border border-cyan-500/30 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-cyan-400 transition-colors"
-                    placeholder="••••••••"
-                    autoFocus
-                  />
-                  {loginError && <p className="text-red-500 text-xs mt-2 font-bold uppercase tracking-widest">Invalid Access Key</p>}
-                </div>
+              <div className="space-y-6">
+                <p className="text-white/60 text-sm uppercase tracking-widest leading-relaxed">
+                  Connect your neural identity to access the configuration matrix.
+                </p>
                 <button 
-                  type="submit"
-                  className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-black py-3 rounded-lg transition-all duration-300 uppercase tracking-widest shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                  onClick={handleLogin}
+                  className="w-full bg-white text-black font-black py-3 rounded-lg transition-all duration-300 uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-cyan-400"
                 >
-                  Decrypt & Enter
+                  <Globe size={20} /> Sign in with Google
                 </button>
-              </form>
+              </div>
             </motion.div>
           </motion.div>
         )}

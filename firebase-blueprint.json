@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "User Profile",
+      "description": "Stores the user's cyberpunk profile data and links.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique ID of the profile owner." },
+        "name": { "type": "string", "description": "Display name of the user." },
+        "tagline": { "type": "string", "description": "Short bio or tagline." },
+        "logoText": { "type": "string", "description": "Main text for the logo fallback." },
+        "logoSub": { "type": "string", "description": "Subtext for the logo fallback." },
+        "logoImage": { "type": "string", "description": "Base64 encoded logo image." },
+        "backgroundImage": { "type": "string", "description": "Base64 encoded background image." },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "icon": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["uid", "name", "tagline", "links"]
+    }
+  },
+  "firestore": {
+    "/profiles/{profileId}": {
+      "schema": "Profile",
+      "description": "Collection of user profiles."
+    }
+  }
+}

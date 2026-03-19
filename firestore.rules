@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: profiles
+    // Document ID: profileId (usually the user's UID)
+    // Fields:
+    //   - uid: string (required, immutable) - The owner's UID
+    //   - name: string (required, 1-100 chars) - Display name
+    //   - tagline: string (required, 1-200 chars) - Short bio
+    //   - logoText: string (optional, 1-50 chars) - Logo text
+    //   - logoSub: string (optional, 1-50 chars) - Logo subtext
+    //   - logoImage: string (optional, base64) - Logo image
+    //   - backgroundImage: string (optional, base64) - Background image
+    //   - links: list (required, max 20 items) - Array of link objects
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "fatimahwidi4@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['uid', 'name', 'tagline', 'links']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.tagline is string && data.tagline.size() > 0 && data.tagline.size() <= 200 &&
+             data.links is list && data.links.size() <= 20 &&
+             (!('logoText' in data) || (data.logoText is string && data.logoText.size() <= 50)) &&
+             (!('logoSub' in data) || (data.logoSub is string && data.logoSub.size() <= 50)) &&
+             (!('logoImage' in data) || (data.logoImage is string && data.logoImage.size() <= 2000000)) && // 2MB limit for base64
+             (!('backgroundImage' in data) || (data.backgroundImage is string && data.backgroundImage.size() <= 2000000));
+    }
+
+    function uidUnchanged() {
+      return request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return request.resource.data.uid == resource.data.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /profiles/{profileId} {
+      // Publicly readable
+      allow read: if true;
+
+      // Only owner or admin can create/update
+      allow create: if isAuthenticated() && 
+                      isValidProfile(request.resource.data) && 
+                      (isOwner(profileId) || isAdmin()) &&
+                      uidUnchanged();
+
+      allow update: if isAuthenticated() && 
+                      isValidProfile(request.resource.data) && 
+                      (isOwner(profileId) || isAdmin()) &&
+                      uidNotModified();
+
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}
